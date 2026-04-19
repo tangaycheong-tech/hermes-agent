@@ -1150,6 +1150,20 @@ class AIAgent:
         self._fallback_activated = False
         # Legacy attribute kept for backward compat (tests, external callers)
         self._fallback_model = self._fallback_chain[0] if self._fallback_chain else None
+        logger.info(
+            "ACTIVE MODEL: %s/%s",
+            self.provider or "unknown",
+            self.model or "unknown",
+        )
+        if self._fallback_chain:
+            _fb = self._fallback_chain[0]
+            logger.info(
+                "FALLBACK MODEL: %s/%s",
+                _fb.get("provider", "unknown"),
+                _fb.get("model", "unknown"),
+            )
+        else:
+            logger.info("FALLBACK MODEL: NONE")
         if self._fallback_chain and not self.quiet_mode:
             if len(self._fallback_chain) == 1:
                 fb = self._fallback_chain[0]
@@ -5743,6 +5757,12 @@ class AIAgent:
             self._touch_activity("waiting for provider response (streaming)")
             stream = request_client_holder["client"].chat.completions.create(**stream_kwargs)
 
+            # Some OpenAI-compatible adapters (e.g. copilot-acp) ignore
+            # stream=True and return a finalized non-streaming response object.
+            # Treat that as success instead of trying to iterate it as a stream.
+            if hasattr(stream, "choices"):
+                return stream
+
             # Capture rate limit headers from the initial HTTP response.
             # The OpenAI SDK Stream object exposes the underlying httpx
             # response via .response before any chunks are consumed.
@@ -5847,15 +5867,23 @@ class AIAgent:
                             entry["id"] = tc_delta.id
                         if tc_delta.function:
                             if tc_delta.function.name:
-                                # Use assignment, not +=.  Function names are
-                                # atomic identifiers delivered complete in the
-                                # first chunk (OpenAI spec).  Some providers
-                                # (MiniMax M2.7 via NVIDIA NIM) resend the full
-                                # name in every chunk; concatenation would
-                                # produce "read_fileread_file".  Assignment
-                                # (matching the OpenAI Node SDK / LiteLLM /
-                                # Vercel AI patterns) is immune to this.
-                                entry["function"]["name"] = tc_delta.function.name
+                                # Provider behavior is inconsistent here:
+                                # some stream function names as partials
+                                # ("web_" then "search"), while others resend
+                                # the full name on every chunk ("read_file").
+                                # Merge incrementally without duplicating.
+                                name_piece = tc_delta.function.name
+                                current_name = entry["function"]["name"]
+                                if not current_name:
+                                    entry["function"]["name"] = name_piece
+                                elif name_piece == current_name:
+                                    pass
+                                elif name_piece.startswith(current_name):
+                                    entry["function"]["name"] = name_piece
+                                elif current_name.startswith(name_piece):
+                                    pass
+                                else:
+                                    entry["function"]["name"] = current_name + name_piece
                             if tc_delta.function.arguments:
                                 entry["function"]["arguments"] += tc_delta.function.arguments
                         extra = getattr(tc_delta, "extra_content", None)
