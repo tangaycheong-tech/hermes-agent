@@ -116,6 +116,37 @@ def test_list_authenticated_providers_fallback_to_default_only(monkeypatch):
     assert user_prov["models"] == ["single-model"]
 
 
+def test_list_authenticated_providers_dedupes_providers_dict_against_custom_providers(monkeypatch):
+    """providers: dict entries should not be duplicated by the compat custom_providers view."""
+    monkeypatch.setattr("agent.models_dev.fetch_models_dev", lambda: {})
+    monkeypatch.setattr("hermes_cli.providers.HERMES_OVERLAYS", {})
+
+    user_providers = {
+        "ollama-local": {
+            "name": "Ollama Local",
+            "api": "http://127.0.0.1:11434/v1",
+            "default_model": "llama3.2:3b",
+        }
+    }
+
+    providers = list_authenticated_providers(
+        current_provider="ollama-local",
+        user_providers=user_providers,
+        custom_providers=[
+            {
+                "name": "Ollama Local",
+                "base_url": "http://127.0.0.1:11434/v1",
+                "provider_key": "ollama-local",
+                "model": "llama3.2:3b",
+            }
+        ],
+        max_models=50,
+    )
+
+    ollama_rows = [p for p in providers if p["slug"] == "ollama-local"]
+    assert len(ollama_rows) == 1, f"Expected one Ollama row, got {len(ollama_rows)}"
+
+
 # =============================================================================
 # Tests for _get_named_custom_provider with providers: dict
 # =============================================================================

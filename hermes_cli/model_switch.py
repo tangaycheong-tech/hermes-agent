@@ -814,6 +814,7 @@ def list_authenticated_providers(
     results: List[dict] = []
     seen_slugs: set = set()  # lowercase-normalized to catch case variants (#9545)
     seen_mdev_ids: set = set()  # prevent duplicate entries for aliases (e.g. kimi-coding + kimi-coding-cn)
+    seen_provider_keys: set = set()  # dedupe providers: dict entries against compat custom_providers
 
     data = fetch_models_dev()
 
@@ -1066,6 +1067,8 @@ def list_authenticated_providers(
                 "source": "user-config",
                 "api_url": api_url,
             })
+            seen_provider_keys.add(str(ep_name).strip().lower())
+            seen_slugs.add(str(ep_name).strip().lower())
 
     # --- 4. Saved custom providers from config ---
     # Each ``custom_providers`` entry represents one model under a named
@@ -1091,6 +1094,10 @@ def list_authenticated_providers(
                 or ""
             ).strip()
             if not display_name or not api_url:
+                continue
+
+            provider_key = str(entry.get("provider_key", "") or "").strip().lower()
+            if provider_key and provider_key in seen_provider_keys:
                 continue
 
             slug = custom_provider_slug(display_name)

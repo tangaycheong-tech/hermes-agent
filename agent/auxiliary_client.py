@@ -1349,9 +1349,9 @@ def _to_async_client(sync_client, model: str):
     if isinstance(sync_client, AnthropicAuxiliaryClient):
         return AsyncAnthropicAuxiliaryClient(sync_client), model
     try:
-        from agent.copilot_acp_client import CopilotACPClient
+        from agent.copilot_acp_client import AsyncCopilotACPClient, CopilotACPClient
         if isinstance(sync_client, CopilotACPClient):
-            return sync_client, model
+            return AsyncCopilotACPClient(sync_client), model
     except ImportError:
         pass
 

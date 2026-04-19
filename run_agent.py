@@ -277,7 +277,7 @@ def _should_parallelize_tool_batch(tool_calls) -> bool:
     for tool_call in tool_calls:
         tool_name = tool_call.function.name
         try:
-            function_args = json.loads(tool_call.function.arguments)
+            function_args = _parse_tool_arguments_json(tool_call.function.arguments)
         except Exception:
             logging.debug(
                 "Could not parse args for %s — defaulting to sequential; raw=%s",
@@ -306,6 +306,23 @@ def _should_parallelize_tool_batch(tool_calls) -> bool:
             return False
 
     return True
+
+
+def _parse_tool_arguments_json(raw_args: Any) -> Any:
+    """Parse tool-call arguments, tolerating raw control characters.
+
+    Some providers/adapters emit a JSON-encoded string whose nested values
+    contain literal newlines or tabs (common with multiline terminal commands).
+    Standard ``json.loads`` rejects those with ``Invalid control character``.
+    We first try strict parsing, then fall back to ``strict=False``.
+    """
+    if isinstance(raw_args, (dict, list)):
+        return raw_args
+    if raw_args is None:
+        return {}
+    if not isinstance(raw_args, str):
+        raw_args = str(raw_args)
+    return json.loads(raw_args, strict=False)
 
 
 def _extract_parallel_scope_path(tool_name: str, function_args: dict) -> Path | None:
@@ -2612,7 +2629,9 @@ class AIAgent:
             )
             start_idx = len(conversation_history) if conversation_history else 0
             flush_from = max(start_idx, self._last_flushed_db_idx)
-            for msg in messages[flush_from:]:
+            for idx, msg in enumerate(messages[flush_from:], start=flush_from):
+                if self._should_skip_recovery_artifact_at(messages, idx):
+                    continue
                 role = msg.get("role", "unknown")
                 content = msg.get("content")
                 tool_calls_data = None
@@ -3140,7 +3159,7 @@ class AIAgent:
         try:
             # Clean assistant content for session logs
             cleaned = []
-            for msg in messages:
+            for msg in self._strip_recovery_artifacts(messages):
                 if msg.get("role") == "assistant" and msg.get("content"):
                     msg = dict(msg)
                     msg["content"] = self._clean_session_content(msg["content"])
@@ -3186,6 +3205,59 @@ class AIAgent:
         except Exception as e:
             if self.verbose_logging:
                 logging.warning(f"Failed to save session log: {e}")
+
+    @staticmethod
+    def _is_post_tool_empty_nudge(msg: Dict[str, Any]) -> bool:
+        return (
+            isinstance(msg, dict)
+            and msg.get("role") == "user"
+            and str(msg.get("content") or "").strip()
+            == "You just executed tool calls but returned an empty response. Please process the tool results above and continue with the task."
+        )
+
+    @classmethod
+    def _strip_recovery_artifacts(cls, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Remove synthetic empty-response recovery messages from history.
+
+        These messages are injected only to recover a broken turn. They help the
+        next immediate API call, but if they persist in saved history they pollute
+        later turns and context compaction, especially for text-transcript-backed
+        providers like Copilot ACP.
+        """
+        cleaned: List[Dict[str, Any]] = []
+        idx = 0
+        while idx < len(messages):
+            msg = messages[idx]
+            next_msg = messages[idx + 1] if idx + 1 < len(messages) else None
+            if (
+                isinstance(msg, dict)
+                and msg.get("role") == "assistant"
+                and str(msg.get("content") or "").strip() == "(empty)"
+                and cls._is_post_tool_empty_nudge(next_msg)
+            ):
+                idx += 2
+                continue
+            if cls._is_post_tool_empty_nudge(msg):
+                idx += 1
+                continue
+            cleaned.append(msg)
+            idx += 1
+        return cleaned
+
+    @classmethod
+    def _should_skip_recovery_artifact_at(cls, messages: List[Dict[str, Any]], idx: int) -> bool:
+        if idx < 0 or idx >= len(messages):
+            return False
+        msg = messages[idx]
+        next_msg = messages[idx + 1] if idx + 1 < len(messages) else None
+        if (
+            isinstance(msg, dict)
+            and msg.get("role") == "assistant"
+            and str(msg.get("content") or "").strip() == "(empty)"
+            and cls._is_post_tool_empty_nudge(next_msg)
+        ):
+            return True
+        return cls._is_post_tool_empty_nudge(msg)
     
     def interrupt(self, message: str = None) -> None:
         """
@@ -7555,7 +7627,7 @@ class AIAgent:
             for tc in tool_calls:
                 if tc.function.name == "memory":
                     try:
-                        args = json.loads(tc.function.arguments)
+                        args = _parse_tool_arguments_json(tc.function.arguments)
                         flush_target = args.get("target", "memory")
                         from tools.memory_tool import memory_tool as _memory_tool
                         _memory_tool(
@@ -7850,7 +7922,7 @@ class AIAgent:
                 self._iters_since_skill = 0
 
             try:
-                function_args = json.loads(tool_call.function.arguments)
+                function_args = _parse_tool_arguments_json(tool_call.function.arguments)
             except json.JSONDecodeError:
                 function_args = {}
             if not isinstance(function_args, dict):
@@ -8141,7 +8213,7 @@ class AIAgent:
             function_name = tool_call.function.name
 
             try:
-                function_args = json.loads(tool_call.function.arguments)
+                function_args = _parse_tool_arguments_json(tool_call.function.arguments)
             except json.JSONDecodeError as e:
                 logging.warning(f"Unexpected JSON error after validation: {e}")
                 function_args = {}
@@ -8521,7 +8593,9 @@ class AIAgent:
             # (finish_reason, reasoning) that strict APIs like Mistral reject with 422
             _needs_sanitize = self._should_sanitize_tool_calls()
             api_messages = []
-            for msg in messages:
+            for idx, msg in enumerate(messages):
+                if self._should_skip_recovery_artifact_at(messages, idx):
+                    continue
                 api_msg = msg.copy()
                 for internal_field in ("reasoning", "finish_reason", "_thinking_prefill"):
                     api_msg.pop(internal_field, None)
@@ -9099,6 +9173,8 @@ class AIAgent:
             # on assistant messages with tool_calls. We handle both cases here.
             api_messages = []
             for idx, msg in enumerate(messages):
+                if self._should_skip_recovery_artifact_at(messages, idx):
+                    continue
                 api_msg = msg.copy()
 
                 # Inject ephemeral context into the current turn's user message.
@@ -11083,7 +11159,9 @@ class AIAgent:
                             tc.function.arguments = "{}"
                             continue
                         try:
-                            json.loads(args)
+                            parsed_args = _parse_tool_arguments_json(args)
+                            if isinstance(parsed_args, (dict, list)):
+                                tc.function.arguments = json.dumps(parsed_args, ensure_ascii=False)
                         except json.JSONDecodeError as e:
                             invalid_json_args.append((tc.function.name, str(e)))
                     
