@@ -1404,6 +1404,7 @@ def select_provider_and_model(args=None):
         active = "custom"
 
     from hermes_cli.models import CANONICAL_PROVIDERS, _PROVIDER_LABELS
+    from hermes_cli.model_switch import filter_model_picker_entries
 
     provider_labels = dict(_PROVIDER_LABELS)  # derive from canonical list
     active_label = provider_labels.get(active, active) if active else "none"
@@ -1414,7 +1415,7 @@ def select_provider_and_model(args=None):
     print()
 
     # Step 1: Provider selection — flat list from CANONICAL_PROVIDERS
-    all_providers = [(p.slug, p.tui_desc) for p in CANONICAL_PROVIDERS]
+    all_providers = [(p.slug, p.tui_desc) for p in filter_model_picker_entries(CANONICAL_PROVIDERS)]
 
     def _named_custom_provider_map(cfg) -> dict[str, dict[str, str]]:
         custom_provider_map = {}

@@ -46,6 +46,32 @@ from agent.models_dev import (
 logger = logging.getLogger(__name__)
 
 
+# Provider slugs hidden from interactive /model pickers.
+MODEL_PICKER_EXCLUDED_PROVIDER_SLUGS = frozenset({
+    "openai-codex",
+    "ollama-cloud",
+})
+
+
+def filter_model_picker_entries(entries):
+    """Return picker entries excluding providers intentionally hidden from UI.
+
+    Accepts objects with a ``slug`` attribute or dictionaries with a
+    ``slug`` key.
+    """
+    filtered = []
+    for entry in entries:
+        slug = ""
+        if isinstance(entry, dict):
+            slug = str(entry.get("slug", "")).strip().lower()
+        else:
+            slug = str(getattr(entry, "slug", "")).strip().lower()
+        if slug in MODEL_PICKER_EXCLUDED_PROVIDER_SLUGS:
+            continue
+        filtered.append(entry)
+    return filtered
+
+
 # ---------------------------------------------------------------------------
 # Non-agentic model warning
 # ---------------------------------------------------------------------------

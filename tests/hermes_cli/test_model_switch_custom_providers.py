@@ -6,8 +6,13 @@ only looked at `providers:`.
 """
 
 import hermes_cli.providers as providers_mod
-from hermes_cli.model_switch import list_authenticated_providers, switch_model
+from hermes_cli.model_switch import (
+    filter_model_picker_entries,
+    list_authenticated_providers,
+    switch_model,
+)
 from hermes_cli.providers import resolve_provider_full
+from hermes_cli.models import CANONICAL_PROVIDERS
 
 
 _MOCK_VALIDATION = {
@@ -43,6 +48,25 @@ def test_list_authenticated_providers_includes_custom_providers(monkeypatch):
         and p["api_url"] == "http://127.0.0.1:4141/v1"
         for p in providers
     )
+
+
+def test_filter_model_picker_entries_hides_openai_codex_and_ollama_cloud():
+    entries = [
+        {"slug": "openai-codex", "name": "OpenAI Codex"},
+        {"slug": "ollama-cloud", "name": "Ollama Cloud"},
+        {"slug": "anthropic", "name": "Anthropic"},
+    ]
+
+    filtered = filter_model_picker_entries(entries)
+    assert [entry["slug"] for entry in filtered] == ["anthropic"]
+
+
+def test_filter_model_picker_entries_hides_canonical_entries():
+    filtered = filter_model_picker_entries(CANONICAL_PROVIDERS)
+    slugs = {entry.slug for entry in filtered}
+
+    assert "openai-codex" not in slugs
+    assert "ollama-cloud" not in slugs
 
 
 def test_resolve_provider_full_finds_named_custom_provider():
