@@ -179,7 +179,7 @@ import logging
 import time as _time
 from datetime import datetime
 
-from hermes_cli import __version__, __release_date__
+from hermes_cli.version import __release_date__, __version__
 from hermes_constants import OPENROUTER_BASE_URL
 
 logger = logging.getLogger(__name__)

@@ -12169,5 +12169,29 @@ def main(
     print("\n👋 Agent execution completed!")
 
 
+def _handle_legacy_version_argv(argv: list[str]) -> bool:
+    """Handle version requests for stale console scripts still pointing here.
+
+    Older installs may still map `hermes-agent` to `run_agent:main`. In that
+    path, Fire treats `--version` poorly and can fall through into the demo
+    conversation. Intercept the common version invocations early and print the
+    canonical CLI version instead.
+    """
+    version_flags = {"--version", "-V", "version"}
+    args = [arg for arg in argv[1:] if arg]
+    if not args:
+        return False
+    if len(args) == 1 and args[0] in version_flags:
+        try:
+            from hermes_cli.main import cmd_version
+            cmd_version(None)
+        except Exception:
+            from hermes_cli.version import __version__, __release_date__
+            print(f"Hermes Agent v{__version__} ({__release_date__})")
+        return True
+    return False
+
+
 if __name__ == "__main__":
-    fire.Fire(main)
+    if not _handle_legacy_version_argv(sys.argv):
+        fire.Fire(main)
