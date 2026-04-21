@@ -50,23 +50,27 @@ def test_list_authenticated_providers_includes_custom_providers(monkeypatch):
     )
 
 
-def test_filter_model_picker_entries_hides_openai_codex_and_ollama_cloud():
+def test_filter_model_picker_entries_keeps_authenticated_codex_and_ollama_providers():
     entries = [
-        {"slug": "openai-codex", "name": "OpenAI Codex"},
+        {"slug": "openai-codex", "name": "ChatGPT Codex CLI"},
         {"slug": "ollama-cloud", "name": "Ollama Cloud"},
         {"slug": "anthropic", "name": "Anthropic"},
     ]
 
     filtered = filter_model_picker_entries(entries)
-    assert [entry["slug"] for entry in filtered] == ["anthropic"]
+    assert [entry["slug"] for entry in filtered] == [
+        "openai-codex",
+        "ollama-cloud",
+        "anthropic",
+    ]
 
 
-def test_filter_model_picker_entries_hides_canonical_entries():
+def test_filter_model_picker_entries_keeps_canonical_entries():
     filtered = filter_model_picker_entries(CANONICAL_PROVIDERS)
     slugs = {entry.slug for entry in filtered}
 
-    assert "openai-codex" not in slugs
-    assert "ollama-cloud" not in slugs
+    assert "openai-codex" in slugs
+    assert "ollama-cloud" in slugs
 
 
 def test_resolve_provider_full_finds_named_custom_provider():

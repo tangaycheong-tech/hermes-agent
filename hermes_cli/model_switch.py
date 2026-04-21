@@ -47,10 +47,10 @@ logger = logging.getLogger(__name__)
 
 
 # Provider slugs hidden from interactive /model pickers.
-MODEL_PICKER_EXCLUDED_PROVIDER_SLUGS = frozenset({
-    "openai-codex",
-    "ollama-cloud",
-})
+#
+# We keep the hook for future use, but the Telegram /model picker should
+# surface all authenticated providers that have runnable backends.
+MODEL_PICKER_EXCLUDED_PROVIDER_SLUGS = frozenset()
 
 
 def filter_model_picker_entries(entries):
